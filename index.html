@@ -807,6 +807,48 @@ select:focus, input:focus { border-color:var(--accent); background:#fff; }
   </div>
 </div>
 
+<!-- ═══ EDIT JOB MODAL ═══ -->
+<div id="edit_job_modal" class="modal-overlay hidden">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-header">
+      <span class="modal-title">✏ Edit Job</span>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="edit_job_info" style="background:#f8f8f8;border-radius:6px;padding:8px 14px;margin-bottom:16px;font-size:.8rem;color:var(--muted);"></div>
+
+      <label>Department</label>
+      <select id="edit_dept" onchange="onEditDeptChange()" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:6px;font-size:.88rem;margin-bottom:12px;">
+        <option value="">— Select Department —</option>
+        <option>Prepress</option><option>Press</option><option>Folding</option>
+        <option>Bindery</option><option>Finishing</option><option>Mailing</option>
+        <option>Fulfillment</option><option>Shipping/Inventory</option>
+      </select>
+
+      <label>Machine / Operation</label>
+      <select id="edit_machine" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:6px;font-size:.88rem;margin-bottom:12px;">
+        <option value="">— Select Department First —</option>
+      </select>
+
+      <label>Operator</label>
+      <select id="edit_operator" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:6px;font-size:.88rem;margin-bottom:12px;">
+        <option value="">— Select Operator —</option>
+        <optgroup label="── Management ──"><option>Carlos</option><option>Ismael</option><option>Jorge</option><option>Frank</option></optgroup>
+        <optgroup label="── Prepress ──"><option>Aaron</option><option>Nate</option><option>Emma</option><option>Humberto</option></optgroup>
+        <optgroup label="── Press ──"><option>Victor</option><option>Tony</option><option>Pepe</option></optgroup>
+        <optgroup label="── Bindery ──"><option>Becky</option><option>Hector</option><option>Ruben</option><option>David</option><option>Leo</option><option>Paul</option></optgroup>
+      </select>
+
+      <label>Due Date</label>
+      <input type="date" id="edit_due_date" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:6px;font-size:.88rem;margin-bottom:4px;">
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveEditJob()">✓ Save Changes</button>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ BEGIN NEXT OPERATION MODAL ═══ -->
 <div id="next_op_modal" class="modal-overlay hidden">
   <div class="modal" style="max-width:440px;">
@@ -1538,7 +1580,70 @@ function autoFillJobForm(data) {
 }
 
 
-// ── MARK JOB FULLY COMPLETE ───────────────────────────────────
+// ── EDIT JOB ──────────────────────────────────────────────────
+function openEditModal(jobId) {
+  const job = getData().find(j => j.id === jobId);
+  if (!job) return;
+
+  document.getElementById('edit_job_info').innerHTML =
+    `<strong>Job ${job.jobNumber}</strong> &nbsp;·&nbsp; ${job.customer||''} &nbsp;·&nbsp; ${job.opType}`;
+
+  const deptSel = document.getElementById('edit_dept');
+  deptSel.value = job.opType || '';
+  onEditDeptChange();
+
+  // Set current values after machines are populated
+  setTimeout(() => {
+    document.getElementById('edit_machine').value  = job.machine  || '';
+    document.getElementById('edit_operator').value = job.operator || '';
+  }, 10);
+
+  document.getElementById('edit_due_date').value = job.dueDate || '';
+
+  // Store job id on modal for save
+  document.getElementById('edit_job_modal').dataset.jobId = jobId;
+  document.getElementById('edit_job_modal').classList.remove('hidden');
+}
+
+function onEditDeptChange() {
+  const dept = document.getElementById('edit_dept').value;
+  const sel  = document.getElementById('edit_machine');
+  sel.innerHTML = '<option value="">— Select Operation —</option>';
+  if (dept && MACHINES[dept]) {
+    MACHINES[dept].forEach(m => {
+      const o = document.createElement('option');
+      o.value = m; o.textContent = m; sel.appendChild(o);
+    });
+  }
+}
+
+function saveEditJob() {
+  const jobId    = document.getElementById('edit_job_modal').dataset.jobId;
+  const dept     = document.getElementById('edit_dept').value;
+  const machine  = document.getElementById('edit_machine').value;
+  const operator = document.getElementById('edit_operator').value;
+  const dueDate  = document.getElementById('edit_due_date').value;
+
+  if (!dept || !machine || !operator) {
+    alert('Please select Department, Machine and Operator.'); return;
+  }
+
+  const all = getData();
+  const job = all.find(j => j.id === jobId);
+  if (!job) return;
+
+  job.opType   = dept;
+  job.machine  = machine;
+  job.operator = operator;
+  if (dueDate) job.dueDate = dueDate;
+
+  setData(all);
+  closeModal();
+  renderActiveJobs();
+  toast('✓ Job ' + job.jobNumber + ' updated — ' + machine + ' · ' + operator);
+}
+
+
 function markJobComplete(jobId) {
   if (!confirm('Mark this job as fully complete?')) return;
   const all = getData();
@@ -2743,10 +2848,14 @@ function renderJobCard(j) {
   const badgeCls   = activeDT ? 'down' : j.status;
         badgeLbl   = badgeLbl || (activeDT ? '⚠ Downtime' : mrOvertime ? '⚠ MR Overtime' : stageLabel[j.status]);
   const badgeExtra = mrOvertime ? 'mr-overtime-badge' : '';
-  // Delete button always shown on active cards
-  actions += `<button class="btn btn-sm" onclick="deleteJob('${j.id}')"
-    style="background:#c0392b;color:#fff;border:1px solid #a93226;margin-left:auto;"
-    title="Delete this job permanently">🗑 Delete</button>`;
+  // Edit + Delete buttons always shown on active cards
+  actions += `
+    <button class="btn btn-sm" onclick="openEditModal('${j.id}')"
+      style="background:#2980b9;color:#fff;border:1px solid #2471a3;"
+      title="Edit machine, operator or department">✏ Edit</button>
+    <button class="btn btn-sm" onclick="deleteJob('${j.id}')"
+      style="background:#c0392b;color:#fff;border:1px solid #a93226;margin-left:auto;"
+      title="Delete this job permanently">🗑 Delete</button>`;
 
   // Status dot color per dept
   const deptDotColor = {
@@ -2978,7 +3087,10 @@ function openModal(type, jobId) {
   document.getElementById('modal_overlay').classList.remove('hidden');
 }
 
-function closeModal() { document.getElementById('modal_overlay').classList.add('hidden'); }
+function closeModal() {
+  document.getElementById('modal_overlay').classList.add('hidden');
+  document.getElementById('edit_job_modal').classList.add('hidden');
+}
 function closeModalOutside(e) { if (e.target.id === 'modal_overlay') closeModal(); }
 
 // ── MODAL CALCULATIONS ────────────────────────────────────────────────────────
